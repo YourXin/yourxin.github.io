@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MySQL 常用查询优化 - 手绘清单信息图</title>
+  <style>
+    :root {
+      --bg: #f7f4ec;
+      --paper: #fffdf8;
+      --ink: #2f3a40;
+      --muted: #66727a;
+      --red: #d78d8d;
+      --green: #94b89a;
+      --blue: #8eaed1;
+      --yellow: #d9c58b;
+      --purple: #b8a1cb;
+      --shadow: rgba(63, 69, 74, 0.12);
+      --line: #57636c;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+      background:
+        radial-gradient(circle at 10% 20%, rgba(255,255,255,0.8) 0 40px, transparent 41px),
+        radial-gradient(circle at 90% 15%, rgba(255,255,255,0.7) 0 55px, transparent 56px),
+        linear-gradient(180deg, #fbfaf6 0%, var(--bg) 100%);
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    .page {
+      width: min(1500px, calc(100vw - 32px));
+      margin: 24px auto 48px;
+      padding: 28px 24px 56px;
+      position: relative;
+    }
+
+    .title-wrap {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.5fr 0.8fr;
+      gap: 22px;
+      align-items: stretch;
+      margin-bottom: 28px;
+    }
+
+    .hero,
+    .flow-note,
+    .card {
+      background: var(--paper);
+      position: relative;
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+
+    .hero {
+      padding: 26px 28px 24px;
+      border: 3px solid var(--line);
+      border-radius: 34px 28px 36px 30px / 28px 36px 30px 34px;
+      transform: rotate(-0.4deg);
+    }
+
+    .hero::before,
+    .hero::after,
+    .flow-note::before,
+    .flow-note::after,
+    .card::before,
+    .card::after {
+      content: "";
+      position: absolute;
+      inset: 7px;
+      border: 2px dashed rgba(87, 99, 108, 0.28);
+      border-radius: inherit;
+      pointer-events: none;
+    }
+
+    .hero::after,
+    .flow-note::after,
+    .card::after {
+      inset: auto;
+      width: 44px;
+      height: 16px;
+      background: rgba(217, 197, 139, 0.38);
+      border: none;
+      top: -8px;
+      left: 28px;
+      transform: rotate(-7deg);
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: clamp(30px, 4vw, 48px);
+      line-height: 1.12;
+      letter-spacing: 0.02em;
+    }
+
+    .hero p {
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.8;
+      color: var(--muted);
+    }
+
+    .tag-row {
+      margin-top: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .tag {
+      padding: 7px 12px;
+      border: 2px solid var(--line);
+      border-radius: 999px;
+      background: #fefcf7;
+      font-size: 13px;
+      transform: rotate(calc(var(--r) * 1deg));
+    }
+
+    .flow-note {
+      padding: 22px 22px 18px;
+      border: 3px solid var(--line);
+      border-radius: 28px 36px 32px 26px / 34px 30px 36px 28px;
+      transform: rotate(0.7deg);
+      background: linear-gradient(180deg, #fffef9 0%, #fffaf1 100%);
+    }
+
+    .flow-note h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+
+    .flow-steps {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 15px;
+      line-height: 1.65;
+      color: var(--ink);
+    }
+
+    .step b {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      min-width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid var(--line);
+      background: #fff;
+      font-size: 14px;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 24px;
+      position: relative;
+    }
+
+    .card {
+      padding: 20px 20px 18px;
+      border: 3px solid var(--line);
+      border-radius: 30px 26px 34px 28px / 28px 34px 30px 32px;
+      min-height: 240px;
+      overflow: hidden;
+    }
+
+    .card:nth-child(odd) {
+      transform: rotate(-0.55deg);
+    }
+
+    .card:nth-child(even) {
+      transform: rotate(0.75deg);
+    }
+
+    .span-4 { grid-column: span 4; }
+    .span-6 { grid-column: span 6; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: span 12; }
+
+    .tone-red { background: linear-gradient(180deg, #fffaf9, #fdf2f2); }
+    .tone-green { background: linear-gradient(180deg, #fbfdf9, #f0f8f0); }
+    .tone-blue { background: linear-gradient(180deg, #fbfcff, #eff4fa); }
+    .tone-yellow { background: linear-gradient(180deg, #fffef9, #fbf6e7); }
+    .tone-purple { background: linear-gradient(180deg, #fdfbff, #f3eef9); }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      border: 2px solid var(--line);
+      display: grid;
+      place-items: center;
+      background: rgba(255, 255, 255, 0.72);
+      flex: 0 0 auto;
+    }
+
+    .card h3 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .section-note {
+      margin: 2px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+
+    .block {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border: 2px dashed rgba(87, 99, 108, 0.36);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.5);
+    }
+
+    .block h4 {
+      margin: 0 0 8px;
+      font-size: 17px;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 20px;
+      line-height: 1.8;
+      font-size: 15px;
+    }
+
+    li + li {
+      margin-top: 2px;
+    }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .mini {
+      padding: 10px 12px;
+      background: rgba(255,255,255,0.6);
+      border: 2px dashed rgba(87,99,108,0.32);
+      border-radius: 16px;
+    }
+
+    .mini-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .connector-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .board > * {
+      position: relative;
+      z-index: 1;
+    }
+
+    .footer-tip {
+      margin-top: 28px;
+      padding: 16px 20px;
+      border: 3px solid var(--line);
+      border-radius: 26px 30px 24px 32px;
+      background: linear-gradient(180deg, #fffdf8 0%, #f7fbfd 100%);
+      box-shadow: 0 10px 24px var(--shadow);
+      font-size: 15px;
+      line-height: 1.8;
+      color: var(--ink);
+    }
+
+    .footer-tip b {
+      font-size: 16px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.7);
+      border: 1px dashed rgba(87,99,108,0.28);
+    }
+
+    @media (max-width: 1180px) {
+      .title-wrap,
+      .board {
+        grid-template-columns: 1fr;
+      }
+
+      .span-4, .span-6, .span-8, .span-12 {
+        grid-column: span 1;
+      }
+
+      .connector-layer {
+        display: none;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        width: min(100vw - 18px, 100%);
+        padding: 16px 10px 32px;
+      }
+
+      .hero,
+      .flow-note,
+      .card,
+      .footer-tip {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .mini-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .card h3 {
+        font-size: 21px;
+      }
+    }
+
+    svg { display: block; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="title-wrap">
+      <div class="hero">
+        <h1>MySQL 常用查询优化<br />大纲指南</h1>
+        <p>
+          面向 IT 程序员的手绘风清单信息图。把索引、SQL、表结构、执行计划、缓存、配置、慢查询与工程实践整理成一张可快速浏览的优化地图。
+        </p>
+        <div class="tag-row">
+          <span class="tag" style="--r:-3">手绘线条</span>
+          <span class="tag" style="--r:2">便利贴布局</span>
+          <span class="tag" style="--r:-1">低饱和配色</span>
+          <span class="tag" style="--r:3">流程化阅读</span>
+          <span class="tag" style="--r:-2">适合打印/分享</span>
+        </div>
+      </div>
+
+      <aside class="flow-note">
+        <h2>优化流程建议</h2>
+        <div class="flow-steps">
+          <div class="step"><b>1</b><span>发现慢查询：先看慢查询日志，确定高频、耗时和影响范围。</span></div>
+          <div class="step"><b>2</b><span>分析执行计划：用 <code>EXPLAIN</code> 看访问类型、索引命中和扫描行数。</span></div>
+          <div class="step"><b>3</b><span>针对性优化：调整索引、重写 SQL、必要时改表结构或参数。</span></div>
+          <div class="step"><b>4</b><span>验证效果：比对优化前后耗时、扫描行数和资源占用。</span></div>
+          <div class="step"><b>5</b><span>持续监控：保留日志与监控，避免回归与新热点出现。</span></div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="board">
+      <svg class="connector-layer" viewBox="0 0 1500 1380" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#66727a"></path>
+          </marker>
+        </defs>
+        <path d="M 370 78 C 500 110, 590 120, 700 120" fill="none" stroke="#66727a" stroke-width="3" stroke-linecap="round" stroke-dasharray="9 10" marker-end="url(#arrow)" opacity="0.65"/>
+        <path d="M 260 285 C 250 380, 220 420, 190 500" fill="none" stroke="#66727a" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" marker-end="url(#arrow)" opacity="0.55"/>
+        <path d="M 740 300 C 820 370, 920 420, 1040 470" fill="none" stroke="#66727a" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" marker-end="url(#arrow)" opacity="0.55"/>
+        <path d="M 1240 280 C 1260 360, 1265 430, 1230 500" fill="none" stroke="#66727a" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" marker-end="url(#arrow)" opacity="0.55"/>
+        <path d="M 365 760 C 520 800, 650 800, 770 760" fill="none" stroke="#66727a" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" marker-end="url(#arrow)" opacity="0.55"/>
+        <path d="M 1080 760 C 1150 820, 1200 900, 1240 1020" fill="none" stroke="#66727a" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" marker-end="url(#arrow)" opacity="0.55"/>
+        <path d="M 780 1050 C 680 1140, 540 1180, 360 1190" fill="none" stroke="#66727a" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 10" marker-end="url(#arrow)" opacity="0.55"/>
+      </svg>
+
+      <article class="card span-4 tone-blue">
+        <div class="card-header">
+          <div class="icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 34 34">
+              <ellipse cx="15" cy="15" rx="8.5" ry="8" fill="none" stroke="#2f3a40" stroke-width="2.4"/>
+              <path d="M21 21 L29 29" fill="none" stroke="#2f3a40" stroke-width="2.4" stroke-linecap="round"/>
+              <path d="M12 15h6M15 12v6" fill="none" stroke="#2f3a40" stroke-width="2.2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3>一、索引优化</h3>
+            <div class="section-note">先解决“能不能快找到数据”</div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h4>1.1 索引类型选择</h4>
+          <ul>
+            <li>B-Tree 索引（最常用）</li>
+            <li>唯一索引</li>
+            <li>复合索引</li>
+            <li>全文索引</li>
+            <li>覆盖索引</li>
+          </ul>
+        </div>
+
+        <div class="mini-grid">
+          <div class="mini">
+            <div class="mini-title">1.2 设计原则</div>
+            <ul>
+              <li>最左前缀原则</li>
+              <li>高选择性列优先</li>
+              <li>避免冗余索引</li>
+              <li>控制索引列长度</li>
+            </ul>
+          </div>
+          <div class="mini">
+            <div class="mini-title">1.3 失效场景</div>
+            <ul>
+              <li>函数或表达式</li>
+              <li>隐式类型转换</li>
+              <li>LIKE 前导通配符</li>
+              <li>OR 条件不当</li>
+              <li>!= / &lt;&gt; / IS NULL</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="card span-4 tone-green">
+        <div class="card-header">
+          <div class="icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 34 34">
+              <path d="M7 9h20v16H7z" fill="none" stroke="#2f3a40" stroke-width="2.3" rx="2"/>
+              <path d="M12 14h10M12 19h6M24 24l3 3" fill="none" stroke="#2f3a40" stroke-width="2.1" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3>二、SQL 语句优化</h3>
+            <div class="section-note">减少无效读取与多余计算</div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h4>2.1 查询优化</h4>
+          <ul>
+            <li>避免 <code>SELECT *</code></li>
+            <li>使用 <code>LIMIT</code> 限制结果集</li>
+            <li>合理使用 <code>JOIN</code> 代替子查询</li>
+            <li><code>EXISTS</code> vs <code>IN</code> 的选择</li>
+            <li><code>UNION</code> vs <code>UNION ALL</code></li>
+          </ul>
+        </div>
+
+        <div class="mini-grid">
+          <div class="mini">
+            <div class="mini-title">2.2 WHERE 优化</div>
+            <ul>
+              <li>过滤条件前置</li>
+              <li>避免 WHERE 中使用函数</li>
+              <li>优先走索引列过滤</li>
+              <li>优化 OR 条件</li>
+            </ul>
+          </div>
+          <div class="mini">
+            <div class="mini-title">2.3 排序与分组</div>
+            <ul>
+              <li>ORDER BY 利用索引</li>
+              <li>GROUP BY 优化</li>
+              <li>DISTINCT 注意代价</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="card span-4 tone-yellow">
+        <div class="card-header">
+          <div class="icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 34 34">
+              <rect x="6" y="7" width="22" height="20" rx="3" fill="none" stroke="#2f3a40" stroke-width="2.3"/>
+              <path d="M12 12h10M12 17h10M12 22h6" fill="none" stroke="#2f3a40" stroke-width="2.1" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3>三、表结构优化</h3>
+            <div class="section-note">从数据设计层面降低查询成本</div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h4>3.1 数据类型选择</h4>
+          <ul>
+            <li>使用最小数据类型</li>
+            <li>整型优先原则</li>
+            <li>VARCHAR vs CHAR</li>
+            <li>避免 TEXT / BLOB 滥用</li>
+          </ul>
+        </div>
+
+        <div class="block">
+          <h4>3.2 范式与反范式</h4>
+          <ul>
+            <li>合理遵循三范式</li>
+            <li>适当冗余提升查询效率</li>
+            <li>分区表使用场景</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="card span-6 tone-red">
+        <div class="card-header">
+          <div class="icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 34 34">
+              <path d="M8 25V12M16 25V8M24 25V15" fill="none" stroke="#2f3a40" stroke-width="2.6" stroke-linecap="round"/>
+              <path d="M5 27h24" fill="none" stroke="#2f3a40" stroke-width="2.2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3>四、执行计划分析</h3>
+            <div class="section-note">看懂 EXPLAIN，比盲改更重要</div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h4>4.1 EXPLAIN 使用</h4>
+          <ul>
+            <li><b>type</b> 类型优先级：system &gt; const &gt; eq_ref &gt; ref &gt; range &gt; index &gt; ALL</li>
+            <li><b>key</b>：是否真正用到了预期索引</li>
+            <li><b>rows</b>：扫描行数是否过大</li>
+            <li><b>Extra</b>：关注 <code>Using index</code>、<code>Using filesort</code> 等信息</li>
+          </ul>
+        </div>
+
+        <div class="mini-grid">
+          <div class="mini">
+            <div class="mini-title">排查重点</div>
+            <ul>
+              <li>全表扫描是否可避免</li>
+              <li>回表是否过多</li>
+              <li>排序/临时表是否过重</li>
+            </ul>
+          </div>
+          <div class="mini">
+            <div class="mini-title">实践建议</div>
+            <ul>
+              <li>优化前后都执行一次</li>
+              <li>结合真实数据量评估</li>
+              <li>只改最关键瓶颈点</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="card span-6 tone-purple">
+        <div class="card-header">
+          <div class="icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 34 34">
+              <rect x="7" y="11" width="20" height="12" rx="4" fill="none" stroke="#2f3a40" stroke-width="2.2"/>
+              <path d="M11 17h3M17 17h6" fill="none" stroke="#2f3a40" stroke-width="2.2" stroke-linecap="round"/>
+              <path d="M11 11V8M23 11V8" fill="none" stroke="#2f3a40" stroke-width="2.1" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3>五、查询缓存优化</h3>
+            <div class="section-note">缓存有效时很快，无效时要果断绕开</div>
+          </div>
+        </div>
+
+        <div class="block">
+          <ul>
+            <li>查询缓存配置</li>
+            <li>缓存命中条件</li>
+            <li>缓存失效场景</li>
+          </ul>
+        </div>
+
+        <div class="block">
+          <h4>阅读提醒</h4>
+          <ul>
+            <li>缓存不是万能优化手段</li>
+            <li>更新频繁的表往往收益有限</li>
+            <li>更应关注索引与 SQL 本身的质量</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="card span-4 tone-blue">
+        <div class="card-header">
+          <div class="icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 34 34">
+              <path d="M11 8h12l4 4v14H7V8z" fill="none" stroke="#2f3a40" stroke-width="2.2"/>
+              <path d="M23 8v6h6M12 18h10M12 22h7" fill="none" stroke="#2f3a40" stroke-width="2.1" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3>六、数据库配置优化</h3>
+            <div class="section-note">参数调优要贴合业务负载</div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h4>6.1 关键参数</h4>
+          <ul>
+            <li><code>innodb_buffer_pool_size</code></li>
+            <li><code>query_cache_size</code></li>
+            <li><code>sort_buffer_size</code></li>
+            <li><code>tmp_table_size</code></li>
+          </ul>
+        </div>
+
+        <div class="mini">
+          <div class="mini-title">配置思路</div>
+          <ul>
+            <li>优先解决内存热点</li>
+            <li>结合排序与临时表使用情况</li>
+            <li>线上调整要分阶段验证</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="card span-4 tone-green">
+        <div class="card-header">
+          <div class="icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 34 34">
+              <circle cx="17" cy="17" r="10" fill="none" stroke="#2f3a40" stroke-width="2.2"/>
+              <path d="M17 11v7l4 3" fill="none" stroke="#2f3a40" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3>七、慢查询分析</h3>
+            <div class="section-note">先量化问题，再决定优化方向</div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h4>7.1 慢查询日志</h4>
+          <ul>
+            <li>开启慢查询日志</li>
+            <li>设置阈值时间</li>
+            <li>定期分析慢查询</li>
+          </ul>
+        </div>
+
+        <div class="mini">
+          <div class="mini-title">推荐动作</div>
+          <ul>
+            <li>按次数与耗时双维度排序</li>
+            <li>合并同类 SQL 模板</li>
+            <li>优先处理高收益问题</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="card span-4 tone-yellow">
+        <div class="card-header">
+          <div class="icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 34 34">
+              <path d="M8 23l6-12 4 8 3-5 5 9" fill="none" stroke="#2f3a40" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M7 26h20" fill="none" stroke="#2f3a40" stroke-width="2.2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3>八、其他优化技巧</h3>
+            <div class="section-note">工程层面的小技巧，往往很实用</div>
+          </div>
+        </div>
+
+        <div class="mini-grid">
+          <div class="mini">
+            <div class="mini-title">8.1 批量操作</div>
+            <ul>
+              <li>批量 INSERT</li>
+              <li>批量 UPDATE</li>
+            </ul>
+          </div>
+          <div class="mini">
+            <div class="mini-title">8.2 连接管理</div>
+            <ul>
+              <li>避免长事务</li>
+              <li>及时释放连接</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="block">
+          <h4>8.3 分页优化</h4>
+          <ul>
+            <li>延迟关联</li>
+            <li>记录上次位置</li>
+            <li>避免大偏移量</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="card span-12 tone-red">
+        <div class="card-header">
+          <div class="icon" aria-hidden="true">
+            <svg width="34" height="34" viewBox="0 0 34 34">
+              <path d="M8 18c2-6 7-9 12-9 4 0 7 2 7 6 0 4-3 7-8 7h-8c-2 0-4 1-4 3 0 1 1 2 2 2" fill="none" stroke="#2f3a40" stroke-width="2.2" stroke-linecap="round"/>
+              <path d="M20 11l3-2 1 4" fill="none" stroke="#2f3a40" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div>
+            <h3>程序员速记：排查顺序怎么抓？</h3>
+            <div class="section-note">建议按照“日志 → 执行计划 → 索引/SQL → 参数/结构 → 回归验证”推进</div>
+          </div>
+        </div>
+
+        <div class="mini-grid">
+          <div class="mini">
+            <div class="mini-title">先看日志</div>
+            <ul>
+              <li>找出最慢、最多、最影响用户体验的 SQL</li>
+              <li>避免一上来就“凭感觉”改代码</li>
+            </ul>
+          </div>
+          <div class="mini">
+            <div class="mini-title">再看 EXPLAIN</div>
+            <ul>
+              <li>判断是否走索引、是否出现大量扫描与排序</li>
+              <li>确认瓶颈是查找、连接、排序还是回表</li>
+            </ul>
+          </div>
+          <div class="mini">
+            <div class="mini-title">最后做针对性变更</div>
+            <ul>
+              <li>优先最小改动、高收益方案</li>
+              <li>上线后复测并纳入持续监控</li>
+            </ul>
+          </div>
+          <div class="mini">
+            <div class="mini-title">常见误区</div>
+            <ul>
+              <li>索引越多越好</li>
+              <li>缓存一定能救性能</li>
+              <li>慢就一味加机器</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section class="footer-tip">
+      <b>使用提示：</b>
+      这份信息图已经按中文阅读场景做了清晰字体与大字号排版，适合在浏览器中直接展示，也适合继续扩展为团队内部知识卡片。你最上方提到的“查看配置、早期版本策略、配置说明、RDB-AOF 配置”与当前提供的正文内容并不一致，因此本页已严格按你给出的 <b>MySQL 查询优化大纲</b> 生成。
+      <div class="legend">
+        <span>蓝色：索引 / 配置</span>
+        <span>绿色：SQL / 慢查询</span>
+        <span>黄色：结构 / 工程技巧</span>
+        <span>红色：执行计划 / 实战策略</span>
+        <span>紫色：缓存相关</span>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
